@@ -17,3 +17,7 @@ class RegistroRuletaOut(BaseModel):
 class GiroRequest(BaseModel):
     fecha_giro: datetime
 
+
+class RuletaResult(BaseModel):
+    promocion: PromocionOut
+    mensaje: str

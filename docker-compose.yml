@@ -4,11 +4,9 @@ services:
   mysql:
     image: mysql:8.0
     container_name: caturro_mysql
+    env_file:
+      - ./.env
     environment:
-      MYSQL_ROOT_PASSWORD: caturro_root_2024
-      MYSQL_DATABASE: caturro_cafe
-      MYSQL_USER: caturro_user
-      MYSQL_PASSWORD: caturro_pass_2024
       TZ: America/Bogota
     ports:
       - "3306"
@@ -19,7 +17,7 @@ services:
       - caturro_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pcaturro_root_2024"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -42,10 +40,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: caturro_backend
+    env_file:
+      - ./.env
     environment:
-      - DATABASE_URL=mysql+pymysql://caturro_user:caturro_pass_2024@mysql:3306/caturro_cafe
-      - ADMIN_TOKEN=caturro_admin_token_2024
-      - CORS_ORIGINS=http://localhost:3005,http://frontend:3000,http://caturro-spinner.niduga.com,https://caturro-spinner.niduga.com
       - TZ=America/Bogota
     ports:
       - "8005:8000"
@@ -64,9 +61,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: caturro_frontend
-    environment:
-      #- VITE_API_URL=https://caturro-spinner.niduga.com/api
-      - VITE_API_URL=http://localhost:8005/api
+    env_file:
+      - ./.env
     ports:
       - "3005:5173"
     volumes:

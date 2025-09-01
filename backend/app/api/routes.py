@@ -7,7 +7,7 @@ from ..core.database import get_db
 from ..models import Cliente, Promocion, RegistroRuleta
 from ..schemas.cliente import ClienteCreate, ClienteOut
 from ..schemas.promocion import PromocionCreate, PromocionOut
-from ..schemas.registro import GiroRequest, RegistroRuletaOut
+from ..schemas.registro import GiroRequest, RegistroRuletaOut, RuletaResult
 from .deps import require_admin
 import random
 

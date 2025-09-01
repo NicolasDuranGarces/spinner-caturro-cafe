@@ -6,3 +6,4 @@ alembic
 python-dotenv
 cryptography
 pydantic-settings
+passlib[bcrypt]

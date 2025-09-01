@@ -4,10 +4,18 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 
 from ..core.database import get_db
-from ..models import Cliente, Promocion, RegistroRuleta
+from ..core.security import hash_password, verify_password
+from ..models import Cliente, Promocion, RegistroRuleta, MovimientoPuntos
 from ..schemas.cliente import ClienteCreate, ClienteOut
 from ..schemas.promocion import PromocionCreate, PromocionOut
 from ..schemas.registro import GiroRequest, RegistroRuletaOut, RuletaResult
+from ..schemas.auth import RegisterRequest, LoginRequest, ClienteAuthOut
+from ..schemas.puntos import (
+    SumarPuntosRequest,
+    RedimirPuntosRequest,
+    PuntosOut,
+    MovimientoOut,
+)
 from .deps import require_admin
 import random
 
@@ -179,3 +187,99 @@ def listar_registros(
         .all()
     )
     return registros
+# ---------------- Autenticación ligera (registro/login) ----------------
+@router.post("/auth/register", response_model=ClienteAuthOut)
+def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+    existing = db.query(Cliente).filter(Cliente.cedula == payload.cedula).first()
+    if existing:
+        raise HTTPException(409, "Cédula ya registrada")
+    c = Cliente(
+        cedula=payload.cedula.strip(),
+        password_hash=hash_password(payload.password),
+        nombre_completo=payload.nombre_completo.strip(),
+        semestre=payload.semestre.strip(),
+        puntos=0,
+    )
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return c
+
+
+@router.post("/auth/login", response_model=ClienteAuthOut)
+def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    c = db.query(Cliente).filter(Cliente.cedula == payload.cedula).first()
+    if not c or not c.password_hash or not verify_password(payload.password, c.password_hash):
+        raise HTTPException(401, "Credenciales inválidas")
+    return c
+
+
+# ---------------- Puntos ----------------
+@router.post("/puntos/agregar", dependencies=[Depends(require_admin)])
+def puntos_agregar(payload: SumarPuntosRequest, db: Session = Depends(get_db)):
+    c = db.query(Cliente).filter(Cliente.cedula == payload.cedula).first()
+    if not c:
+        raise HTTPException(404, "Cliente no encontrado")
+    if payload.puntos <= 0:
+        raise HTTPException(400, "Los puntos a sumar deben ser > 0")
+    c.puntos = int(c.puntos or 0) + int(payload.puntos)
+    mov = MovimientoPuntos(cliente_id=c.id, cambio=payload.puntos, descripcion=payload.descripcion or "")
+    db.add(mov)
+    db.add(c)
+    db.commit()
+    return {"ok": True, "puntos": c.puntos}
+
+
+@router.post("/puntos/redimir", dependencies=[Depends(require_admin)])
+def puntos_redimir(payload: RedimirPuntosRequest, db: Session = Depends(get_db)):
+    c = db.query(Cliente).filter(Cliente.cedula == payload.cedula).first()
+    if not c:
+        raise HTTPException(404, "Cliente no encontrado")
+    if payload.puntos <= 0:
+        raise HTTPException(400, "Los puntos a restar deben ser > 0")
+    if (c.puntos or 0) < payload.puntos:
+        raise HTTPException(400, "No hay puntos suficientes")
+    c.puntos = int(c.puntos or 0) - int(payload.puntos)
+    mov = MovimientoPuntos(cliente_id=c.id, cambio=-abs(payload.puntos), descripcion=payload.descripcion or "")
+    db.add(mov)
+    db.add(c)
+    db.commit()
+    return {"ok": True, "puntos": c.puntos}
+
+
+@router.get("/clientes/{cliente_id}/puntos", response_model=PuntosOut)
+def puntos_detalle(cliente_id: int, db: Session = Depends(get_db)):
+    c = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if not c:
+        raise HTTPException(404, "Cliente no encontrado")
+    historial = (
+        db.query(MovimientoPuntos)
+        .filter(MovimientoPuntos.cliente_id == cliente_id)
+        .order_by(MovimientoPuntos.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    return {
+        "cliente_id": c.id,
+        "cedula": c.cedula,
+        "puntos": int(c.puntos or 0),
+        "historial": historial,
+    }
+
+
+@router.get("/clientes/{cliente_id}/registros", response_model=List[RegistroRuletaOut])
+def registros_cliente(
+    cliente_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    q = (
+        db.query(RegistroRuleta)
+        .options(joinedload(RegistroRuleta.promocion), joinedload(RegistroRuleta.cliente))
+        .filter(RegistroRuleta.cliente_id == cliente_id)
+        .order_by(RegistroRuleta.fecha_giro.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    return q.all()

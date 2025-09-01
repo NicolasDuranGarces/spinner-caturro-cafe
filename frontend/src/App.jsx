@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Coffee, Gift, RotateCcw, Settings, Trash2, Edit3, Save, X, User, Zap } from "lucide-react";
+import { Coffee, Gift, RotateCcw, Settings, Trash2, Edit3, Save, X, User, Zap, LogOut } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export default function App() {
     const [view, setView] = useState("register"); // register | ruleta | admin
     const [cliente, setCliente] = useState(null);
-    const [form, setForm] = useState({ nombre_completo: "", semestre: "" });
+    const [authMode, setAuthMode] = useState("login"); // login | register
+    const [authForm, setAuthForm] = useState({ cedula: "", password: "", nombre_completo: "", semestre: "" });
+    const [puntos, setPuntos] = useState(0);
+    const [historial, setHistorial] = useState([]);
+    const [redeem, setRedeem] = useState({ puntos: 0, password: "", descripcion: "" });
 
     const [promos, setPromos] = useState([]);
     const [loadingPromos, setLoadingPromos] = useState(false);
@@ -14,6 +18,7 @@ export default function App() {
     const [isSpinning, setIsSpinning] = useState(false);
     const [rotation, setRotation] = useState(0);
     const [ruletaResult, setRuletaResult] = useState(null);
+    const [ruletaTab, setRuletaTab] = useState('puntos'); // puntos | historial
 
     const [adminToken, setAdminToken] = useState("");
     const [editing, setEditing] = useState(null);
@@ -32,6 +37,8 @@ export default function App() {
     // Estado para registros (últimas tiradas)
     const [registros, setRegistros] = useState([]);
     const [loadingRegistros, setLoadingRegistros] = useState(false);
+    const [misRegistros, setMisRegistros] = useState([]);
+    const [loadingMisRegistros, setLoadingMisRegistros] = useState(false);
     const [page, setPage] = useState(0);
 
     // Función para obtener registros
@@ -50,6 +57,9 @@ export default function App() {
         setLoadingRegistros(false);
     };
 
+    // Admin: agregar puntos por cédula
+    const [addPoints, setAddPoints] = useState({ cedula: "", puntos: 0, descripcion: "" });
+
     // cargar promociones activas
     const fetchPromos = async () => {
         setLoadingPromos(true);
@@ -63,6 +73,43 @@ export default function App() {
         if (view !== "admin") fetchPromos();
     }, [view]);
 
+    // Restaurar sesión del cliente
+    useEffect(() => {
+        const raw = localStorage.getItem("cliente");
+        if (raw) {
+            try {
+                const c = JSON.parse(raw);
+                setCliente(c);
+                setView("ruleta");
+            } catch {}
+        }
+    }, []);
+
+    const fetchPuntos = async (cid) => {
+        if (!cid) return;
+        try {
+            const res = await fetch(`${API_URL}/clientes/${cid}/puntos`);
+            if (res.ok) {
+                const data = await res.json();
+                setPuntos(data.puntos);
+                setHistorial(data.historial || []);
+            }
+        } catch {}
+    };
+
+    const fetchMisRegistros = async (cid) => {
+        if (!cid) return;
+        setLoadingMisRegistros(true);
+        try {
+            const res = await fetch(`${API_URL}/clientes/${cid}/registros?limit=50`);
+            if (res.ok) {
+                const data = await res.json();
+                setMisRegistros(data);
+            }
+        } catch {}
+        setLoadingMisRegistros(false);
+    };
+
     // Cargar registros cuando adminToken y page cambian
     useEffect(() => {
         if (view === "admin" && adminToken) {
@@ -70,6 +117,17 @@ export default function App() {
         }
         // eslint-disable-next-line
     }, [view, adminToken, page]);
+
+    // Actualizar puntos cuando hay cliente
+    useEffect(() => {
+        if (cliente?.id) fetchPuntos(cliente.id);
+    }, [cliente?.id]);
+
+    useEffect(() => {
+        if (ruletaTab === 'historial' && cliente?.id) {
+            fetchMisRegistros(cliente.id);
+        }
+    }, [ruletaTab, cliente?.id]);
 
     // Gradiente cónico según probabilidad (grises)
     const wheelGradient = useMemo(() => {
@@ -88,21 +146,49 @@ export default function App() {
 
     const handleRegister = async (e) => {
         e.preventDefault();
-        // Get Colombia current time as ISO-like string in Colombia timezone
-        const colombiaNow = new Date().toLocaleString("sv-SE", { timeZone: "America/Bogota" });
-        const body = { ...form, fecha_registro: colombiaNow };
-        const res = await fetch(`${API_URL}/clientes`, {
+        const body = { ...authForm };
+        const res = await fetch(`${API_URL}/auth/register`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
         });
         if (!res.ok) {
-            alert("Error registrando cliente");
+            const t = await res.text();
+            alert("Error registrando cliente: " + t);
             return;
         }
         const data = await res.json();
         setCliente(data);
+        localStorage.setItem("cliente", JSON.stringify(data));
         setView("ruleta");
+        fetchPuntos(data.id);
+    };
+
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        const body = { cedula: authForm.cedula, password: authForm.password };
+        const res = await fetch(`${API_URL}/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+            alert("Credenciales inválidas");
+            return;
+        }
+        const data = await res.json();
+        setCliente(data);
+        localStorage.setItem("cliente", JSON.stringify(data));
+        setView("ruleta");
+        fetchPuntos(data.id);
+    };
+
+    const logout = () => {
+        setCliente(null);
+        setPuntos(0);
+        setHistorial([]);
+        localStorage.removeItem("cliente");
+        setView("register");
     };
 
     const spin = async () => {
@@ -183,13 +269,20 @@ export default function App() {
                     </div>
                     <div className="flex items-center gap-3">
                         {cliente && (
-                            <button
-                                onClick={() => setView(view === "admin" ? "ruleta" : "admin")}
-                                className="p-2 rounded-lg hover:bg-neutral-800 transition"
-                                title="Panel Admin"
-                            >
-                                <Settings className="w-6 h-6 text-gray-300" />
-                            </button>
+                            <>
+                                {view === 'ruleta' && (
+                                    <div className="hidden sm:flex gap-2">
+                                        <button onClick={() => { setRuletaTab('historial'); fetchMisRegistros(cliente?.id); }} className={`px-3 py-1 rounded text-sm ${ruletaTab==='historial' ? 'bg-neutral-800 text-white' : 'bg-neutral-900 border border-neutral-700 text-gray-300'}`}>Historial</button>
+                                    </div>
+                                )}
+                                <span className="text-sm text-gray-300">Puntos: <strong className="text-white">{puntos}</strong></span>
+                                <button onClick={() => { setView(view === 'admin' ? 'ruleta' : 'admin'); }} className="p-2 rounded-lg hover:bg-neutral-800 transition" title="Panel Admin">
+                                    <Settings className="w-6 h-6 text-gray-300" />
+                                </button>
+                                <button onClick={logout} className="p-2 rounded-lg hover:bg-neutral-800 transition" title="Salir" aria-label="Salir">
+                                    <LogOut className="w-6 h-6 text-gray-300" />
+                                </button>
+                            </>
                         )}
                     </div>
                 </div>
@@ -199,49 +292,42 @@ export default function App() {
                 {view === "register" && (
                     <div className="bg-black/30 rounded-2xl p-8 border border-neutral-800">
                         <div className="text-center mb-8">
-                            <h2 className="text-3xl font-bold text-white">Únete al Underground</h2>
-                            <p className="text-gray-400 mt-2">Regístrate y gira la ruleta por increíbles premios</p>
+                            <h2 className="text-3xl font-bold text-white">Puntos Caturro</h2>
+                            <p className="text-gray-400 mt-2">Regístrate o inicia sesión con tu cédula</p>
+                        </div>
+                        <div className="flex justify-center mb-6 gap-2">
+                            <button className={`px-4 py-2 rounded ${authMode === 'login' ? 'bg-neutral-800' : 'bg-neutral-900 border border-neutral-700'}`} onClick={() => setAuthMode('login')}>Iniciar sesión</button>
+                            <button className={`px-4 py-2 rounded ${authMode === 'register' ? 'bg-neutral-800' : 'bg-neutral-900 border border-neutral-700'}`} onClick={() => setAuthMode('register')}>Registrarse</button>
                         </div>
 
-                        <form onSubmit={handleRegister} className="max-w-md mx-auto space-y-6">
+                        <form onSubmit={authMode === 'register' ? handleRegister : handleLogin} className="max-w-md mx-auto space-y-6">
                             <div>
-                                <label className="block text-gray-300 font-semibold mb-2">
-                                    <User className="inline w-5 h-5 mr-2" />
-                                    Nombre Completo
-                                </label>
-                                <input
-                                    type="text"
-                                    required
-                                    value={form.nombre_completo}
-                                    onChange={(e) => setForm({ ...form, nombre_completo: e.target.value })}
-                                    className="w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-gray-400 focus:outline-none text-white placeholder-gray-500"
-                                    placeholder="Tu nombre completo..."
-                                />
+                                <label className="block text-gray-300 font-semibold mb-2">Cédula</label>
+                                <input type="text" required value={authForm.cedula} onChange={(e) => setAuthForm({ ...authForm, cedula: e.target.value })} className="w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-gray-400 focus:outline-none text-white placeholder-gray-500" placeholder="Tu cédula" />
                             </div>
-
                             <div>
-                                <label className="block text-gray-300 font-semibold mb-2">
-                                    <Zap className="inline w-5 h-5 mr-2" />
-                                    Semestre Actual
-                                </label>
-                                <select
-                                    required
-                                    value={form.semestre}
-                                    onChange={(e) => setForm({ ...form, semestre: e.target.value })}
-                                    className="w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-gray-400 focus:outline-none text-white"
-                                >
-                                    <option value="">Selecciona tu semestre</option>
-                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((s) => (
-                                        <option key={s} value={`${s}° Semestre`}>{s}° Semestre</option>
-                                    ))}
-                                </select>
+                                <label className="block text-gray-300 font-semibold mb-2">Contraseña</label>
+                                <input type="password" required value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} className="w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-gray-400 focus:outline-none text-white placeholder-gray-500" placeholder="Tu contraseña" />
                             </div>
-
-                            <button
-                                type="submit"
-                                className="w-full bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-6 rounded-lg font-bold transition-all shadow"
-                            >
-                                Entrar al Underground 🎭
+                            {authMode === 'register' && (
+                                <>
+                                    <div>
+                                        <label className="block text-gray-300 font-semibold mb-2">Nombre Completo</label>
+                                        <input type="text" required value={authForm.nombre_completo} onChange={(e) => setAuthForm({ ...authForm, nombre_completo: e.target.value })} className="w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-gray-400 focus:outline-none text-white placeholder-gray-500" placeholder="Tu nombre completo" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-gray-300 font-semibold mb-2">Semestre</label>
+                                        <select required value={authForm.semestre} onChange={(e) => setAuthForm({ ...authForm, semestre: e.target.value })} className="w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-gray-400 focus:outline-none text-white">
+                                            <option value="">Selecciona tu semestre</option>
+                                            {[1,2,3,4,5,6,7,8,9,10].map(s => (
+                                                <option key={s} value={`${s}° Semestre`}>{s}° Semestre</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </>
+                            )}
+                            <button type="submit" className="w-full bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-6 rounded-lg font-bold transition-all shadow">
+                                {authMode === 'register' ? 'Crear cuenta' : 'Iniciar sesión'}
                             </button>
                         </form>
                     </div>
@@ -255,7 +341,7 @@ export default function App() {
                         </div>
 
                         <div className="bg-black/30 rounded-2xl p-8 border border-neutral-800">
-                            <div className="flex flex-col md:flex-row gap-6 items-center justify-center">
+                            <div className="flex flex-col md:flex-row gap-6 items-center justify-center mt-8">
                                 {/* Ruleta y flecha */}
                                 <div className="relative w-80 h-80 flex-shrink-0">
                                     {/* Flecha grande visible arriba */}
@@ -349,15 +435,36 @@ export default function App() {
                                 <button
                                     onClick={() => {
                                         setRuletaResult(null);
-                                        setView("register");
-                                        setCliente(null);
-                                        setForm({ nombre_completo: "", semestre: "" });
-                                        // Do not reset the globalHasSpun flag; user cannot spin again on this device
+                                        setView("ruleta");
+                                        // Mantener sesión del cliente
                                     }}
                                     className="mt-6 px-6 py-3 bg-neutral-800 hover:bg-neutral-700 rounded-lg font-semibold"
-                                >
-                                    Nuevo Juego 🎲
-                                </button>
+                                    >
+                                    Seguir jugando 🎲
+                                    </button>
+                            
+                            </div>
+                        )}
+
+                        {ruletaTab === 'historial' && (
+                            <div className="bg-black/30 rounded-2xl p-6 border border-neutral-800">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h2 className="text-xl font-bold text-white">Historial de tiros</h2>
+                                    <button onClick={() => setRuletaTab('puntos')} className="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 rounded">Ver puntos</button>
+                                </div>
+                                {loadingMisRegistros ? (
+                                    <p className="text-gray-500">Cargando...</p>
+                                ) : (
+                                    <ul className="space-y-2">
+                                        {misRegistros.map((r, idx) => (
+                                            <li key={r.id || idx} className="bg-neutral-900/60 border border-neutral-800 rounded p-3 flex justify-between">
+                                                <span className="text-sm text-gray-300">{r.promocion?.nombre || '-'}</span>
+                                                <span className="text-sm text-gray-400">{r.fecha_giro ? new Date(r.fecha_giro).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '-'}</span>
+                                            </li>
+                                        ))}
+                                        {!misRegistros.length && <li className="text-gray-500">Sin tiros registrados</li>}
+                                    </ul>
+                                )}
                             </div>
                         )}
                     </div>
@@ -433,6 +540,52 @@ export default function App() {
                                 </div>
                                 {adminToken && (
                                     <>
+                                        {/* Agregar puntos por compra */}
+                                        <div className="bg-black/30 rounded-2xl p-6 border border-neutral-800">
+                                            <h3 className="text-lg font-semibold mb-4">Agregar puntos por compra</h3>
+                                            <form className="grid grid-cols-1 md:grid-cols-4 gap-3" onSubmit={async (e)=>{
+                                                e.preventDefault();
+                                                const res = await fetch(`${API_URL}/puntos/agregar`, {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
+                                                    body: JSON.stringify({ cedula: addPoints.cedula, puntos: Number(addPoints.puntos), descripcion: addPoints.descripcion })
+                                                });
+                                                if (res.ok) {
+                                                    setAddPoints({ cedula: '', puntos: 0, descripcion: '' });
+                                                    if (cliente) fetchPuntos(cliente.id);
+                                                } else {
+                                                    alert('Error agregando puntos');
+                                                }
+                                            }}>
+                                                <input type="text" value={addPoints.cedula} onChange={(e)=>setAddPoints({...addPoints, cedula: e.target.value})} placeholder="Cédula" className="px-3 py-2 bg-neutral-900 border border-neutral-700 rounded text-white" />
+                                                <input type="number" min="1" value={addPoints.puntos} onChange={(e)=>setAddPoints({...addPoints, puntos: e.target.value})} placeholder="Puntos" className="px-3 py-2 bg-neutral-900 border border-neutral-700 rounded text-white" />
+                                                <input type="text" value={addPoints.descripcion} onChange={(e)=>setAddPoints({...addPoints, descripcion: e.target.value})} placeholder="Descripción" className="px-3 py-2 bg-neutral-900 border border-neutral-700 rounded text-white" />
+                                                <button type="submit" className="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 rounded">Agregar</button>
+                                            </form>
+                                        </div>
+
+                                        <div className="bg-black/30 rounded-2xl p-6 border border-neutral-800">
+                                            <h3 className="text-lg font-semibold mb-4">Redimir puntos (admin)</h3>
+                                            <form className="grid grid-cols-1 md:grid-cols-4 gap-3" onSubmit={async (e)=>{
+                                                e.preventDefault();
+                                                const res = await fetch(`${API_URL}/puntos/redimir`, {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
+                                                    body: JSON.stringify({ cedula: addPoints.cedula, puntos: Number(addPoints.puntos), descripcion: addPoints.descripcion })
+                                                });
+                                                if (res.ok) {
+                                                    setAddPoints({ cedula: '', puntos: 0, descripcion: '' });
+                                                    if (cliente) fetchPuntos(cliente.id);
+                                                } else {
+                                                    alert('Error redimiendo puntos');
+                                                }
+                                            }}>
+                                                <input type="text" value={addPoints.cedula} onChange={(e)=>setAddPoints({...addPoints, cedula: e.target.value})} placeholder="Cédula" className="px-3 py-2 bg-neutral-900 border border-neutral-700 rounded text-white" />
+                                                <input type="number" min="1" value={addPoints.puntos} onChange={(e)=>setAddPoints({...addPoints, puntos: e.target.value})} placeholder="Puntos a restar" className="px-3 py-2 bg-neutral-900 border border-neutral-700 rounded text-white" />
+                                                <input type="text" value={addPoints.descripcion} onChange={(e)=>setAddPoints({...addPoints, descripcion: e.target.value})} placeholder="Descripción" className="px-3 py-2 bg-neutral-900 border border-neutral-700 rounded text-white" />
+                                                <button type="submit" className="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 rounded">Redimir</button>
+                                            </form>
+                                        </div>
                                         {/* Crear nueva promoción */}
                                         <div className="bg-black/30 rounded-2xl p-6 border border-neutral-800">
                                             <h3 className="text-lg font-semibold mb-4">Crear Nueva Promoción</h3>
@@ -610,6 +763,8 @@ export default function App() {
                         )}
                     </div>
                 )}
+
+                
             </main>
         </div>
     );

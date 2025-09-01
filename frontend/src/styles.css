@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* scrollbar opcional en grises */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #4b5563 #111827;
+}

@@ -1,0 +1,86 @@
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: caturro_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: caturro_root_2024
+      MYSQL_DATABASE: caturro_cafe
+      MYSQL_USER: caturro_user
+      MYSQL_PASSWORD: caturro_pass_2024
+      TZ: America/Bogota
+    ports:
+      - "3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - caturro_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pcaturro_root_2024"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  adminer:
+    image: adminer:latest
+    container_name: caturro_adminer
+    ports:
+      - "8080"
+    networks:
+      - caturro_network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: caturro_backend
+    environment:
+      - DATABASE_URL=mysql+pymysql://caturro_user:caturro_pass_2024@mysql:3306/caturro_cafe
+      - ADMIN_TOKEN=caturro_admin_token_2024
+      - CORS_ORIGINS=http://localhost:3005,http://frontend:3000,http://caturro-spinner.niduga.com,https://caturro-spinner.niduga.com
+      - TZ=America/Bogota
+    ports:
+      - "8005:8000"
+    volumes:
+      - ./backend:/app
+    networks:
+      - caturro_network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: caturro_frontend
+    environment:
+      #- VITE_API_URL=https://caturro-spinner.niduga.com/api
+      - VITE_API_URL=http://localhost:8005/api
+    ports:
+      - "3005:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - caturro_network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  caturro_network:
+    driver: bridge
+
+volumes:
+  mysql_data:

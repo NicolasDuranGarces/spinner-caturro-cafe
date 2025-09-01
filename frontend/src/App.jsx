@@ -1,5 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Coffee, Gift, RotateCcw, Settings, Trash2, Edit3, Save, X, User, Zap, LogOut } from "lucide-react";
+import { Coffee, Gift, RotateCcw, Settings, X, LogOut } from "lucide-react";
+import Navbar from './components/Navbar';
+import Toast from './components/Toast';
+import RouletteWheel from './components/RouletteWheel';
+import PointsPanel from './components/PointsPanel';
+import HistoryList from './components/HistoryList';
+import AdminPanel from './components/AdminPanel';
+import AuthForm from './components/AuthForm';
+import { apiGet, apiPost } from './lib/api';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -78,9 +86,7 @@ export default function App() {
     const fetchRegistros = async () => {
         setLoadingRegistros(true);
         try {
-            const res = await fetch(`${API_URL}/registros?skip=${page * 10}&limit=10`, {
-                headers: { "X-Admin-Token": adminToken }
-            });
+            const res = await apiGet(`/registros?skip=${page * 10}&limit=10`, { headers: { 'X-Admin-Token': adminToken } });
             if (!res.ok) throw new Error("Error al cargar registros");
             const data = await res.json();
             setRegistros(data);
@@ -96,7 +102,7 @@ export default function App() {
     // cargar promociones activas
     const fetchPromos = async () => {
         setLoadingPromos(true);
-        const res = await fetch(`${API_URL}/promociones?activas_solo=true`);
+        const res = await apiGet(`/promociones?activas_solo=true`);
         const data = await res.json();
         setPromos(data);
         setLoadingPromos(false);
@@ -162,61 +168,7 @@ export default function App() {
         }
     }, [ruletaTab, cliente?.id]);
 
-    // Gradiente cónico según probabilidad (grises)
-    const wheelGradient = useMemo(() => {
-        if (!promos.length) return "#1f2937";
-        let acc = 0;
-        const total = promos.reduce((s, p) => s + Number(p.probabilidad), 0);
-        const stops = promos.map((p, i) => {
-            const start = (acc / total) * 100;
-            acc += Number(p.probabilidad);
-            const end = (acc / total) * 100;
-            const color = p.color || ["#111827", "#1F2937", "#374151", "#4B5563", "#6B7280"][i % 5];
-            return `${color} ${start}% ${end}%`;
-        });
-        return `conic-gradient(${stops.join(",")})`;
-    }, [promos]);
-
-    const handleRegister = async (e) => {
-        e.preventDefault();
-        const body = { ...authForm };
-        const res = await fetch(`${API_URL}/auth/register`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-            const msg = res.status === 409
-                ? 'Cédula ya registrada'
-                : await readErrorMessage(res, 'No se pudo registrar');
-            notify(`Error registrando cliente: ${msg}`, 'error');
-            return;
-        }
-        const data = await res.json();
-        setCliente(data);
-        localStorage.setItem("cliente", JSON.stringify(data));
-        setView("ruleta");
-        fetchPuntos(data.id);
-    };
-
-    const handleLogin = async (e) => {
-        e.preventDefault();
-        const body = { cedula: authForm.cedula, password: authForm.password };
-        const res = await fetch(`${API_URL}/auth/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-            notify("Credenciales inválidas", 'error');
-            return;
-        }
-        const data = await res.json();
-        setCliente(data);
-        localStorage.setItem("cliente", JSON.stringify(data));
-        setView("ruleta");
-        fetchPuntos(data.id);
-    };
+    // Handlers y UI de auth movidos a AuthForm
 
     const logout = () => {
         setCliente(null);
@@ -302,24 +254,16 @@ export default function App() {
                             <p className="text-sm text-gray-400">Underground Experience</p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                        {cliente && (
-                            <>
-                                {view === 'ruleta' && (
-                                    <div className="hidden sm:flex gap-2">
-                                        <button onClick={() => { setRuletaTab('historial'); fetchMisRegistros(cliente?.id); }} className={`px-3 py-1 rounded text-sm ${ruletaTab==='historial' ? 'bg-neutral-800 text-white' : 'bg-neutral-900 border border-neutral-700 text-gray-300'}`}>Historial</button>
-                                    </div>
-                                )}
-                                <span className="text-sm text-gray-300">Puntos: <strong className="text-white">{puntos}</strong></span>
-                                <button onClick={() => { setView(view === 'admin' ? 'ruleta' : 'admin'); }} className="p-2 rounded-lg hover:bg-neutral-800 transition" title="Panel Admin">
-                                    <Settings className="w-6 h-6 text-gray-300" />
-                                </button>
-                                <button onClick={logout} className="p-2 rounded-lg hover:bg-neutral-800 transition" title="Salir" aria-label="Salir">
-                                    <LogOut className="w-6 h-6 text-gray-300" />
-                                </button>
-                            </>
-                        )}
-                    </div>
+                    <Navbar
+                      view={view}
+                      puntos={puntos}
+                      onToggleAdmin={() => setView(view === 'admin' ? 'ruleta' : 'admin')}
+                      onLogout={logout}
+                      ruletaTab={ruletaTab}
+                      setRuletaTab={setRuletaTab}
+                      cliente={cliente}
+                      onOpenHistorial={() => fetchMisRegistros(cliente?.id)}
+                    />
                 </div>
             </header>
 
@@ -336,47 +280,34 @@ export default function App() {
                     </div>
                 )}
                 {view === "register" && (
-                    <div className="bg-black/30 rounded-2xl p-8 border border-neutral-800">
-                        <div className="text-center mb-8">
-                            <h2 className="text-3xl font-bold text-white">Puntos Caturro</h2>
-                            <p className="text-gray-400 mt-2">Regístrate o inicia sesión con tu cédula</p>
-                        </div>
-                        <div className="flex justify-center mb-6 gap-2">
-                            <button className={`px-4 py-2 rounded ${authMode === 'login' ? 'bg-neutral-800' : 'bg-neutral-900 border border-neutral-700'}`} onClick={() => setAuthMode('login')}>Iniciar sesión</button>
-                            <button className={`px-4 py-2 rounded ${authMode === 'register' ? 'bg-neutral-800' : 'bg-neutral-900 border border-neutral-700'}`} onClick={() => setAuthMode('register')}>Registrarse</button>
-                        </div>
-
-                        <form onSubmit={authMode === 'register' ? handleRegister : handleLogin} className="max-w-md mx-auto space-y-6">
-                            <div>
-                                <label className="block text-gray-300 font-semibold mb-2">Cédula</label>
-                                <input type="text" required value={authForm.cedula} onChange={(e) => setAuthForm({ ...authForm, cedula: e.target.value })} className="w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-gray-400 focus:outline-none text-white placeholder-gray-500" placeholder="Tu cédula" />
-                            </div>
-                            <div>
-                                <label className="block text-gray-300 font-semibold mb-2">Contraseña</label>
-                                <input type="password" required value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} className="w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-gray-400 focus:outline-none text-white placeholder-gray-500" placeholder="Tu contraseña" />
-                            </div>
-                            {authMode === 'register' && (
-                                <>
-                                    <div>
-                                        <label className="block text-gray-300 font-semibold mb-2">Nombre Completo</label>
-                                        <input type="text" required value={authForm.nombre_completo} onChange={(e) => setAuthForm({ ...authForm, nombre_completo: e.target.value })} className="w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-gray-400 focus:outline-none text-white placeholder-gray-500" placeholder="Tu nombre completo" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-gray-300 font-semibold mb-2">Semestre</label>
-                                        <select required value={authForm.semestre} onChange={(e) => setAuthForm({ ...authForm, semestre: e.target.value })} className="w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-gray-400 focus:outline-none text-white">
-                                            <option value="">Selecciona tu semestre</option>
-                                            {[1,2,3,4,5,6,7,8,9,10].map(s => (
-                                                <option key={s} value={`${s}° Semestre`}>{s}° Semestre</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </>
-                            )}
-                            <button type="submit" className="w-full bg-neutral-800 hover:bg-neutral-700 text-white py-3 px-6 rounded-lg font-bold transition-all shadow">
-                                {authMode === 'register' ? 'Crear cuenta' : 'Iniciar sesión'}
-                            </button>
-                        </form>
-                    </div>
+                    <AuthForm
+                      mode={authMode}
+                      setMode={setAuthMode}
+                      values={authForm}
+                      setValues={setAuthForm}
+                      onLogin={async ({ cedula, password }) => {
+                        const res = await apiPost('/auth/login', { cedula, password });
+                        if (!res.ok) { notify('Credenciales inválidas', 'error'); return; }
+                        const data = await res.json();
+                        setCliente(data);
+                        localStorage.setItem('cliente', JSON.stringify(data));
+                        setView('ruleta');
+                        fetchPuntos(data.id);
+                      }}
+                      onRegister={async (payload) => {
+                        const res = await apiPost('/auth/register', payload);
+                        if (!res.ok) {
+                          const msg = res.status === 409 ? 'Cédula ya registrada' : 'No se pudo registrar';
+                          notify(`Error registrando cliente: ${msg}`, 'error');
+                          return;
+                        }
+                        const data = await res.json();
+                        setCliente(data);
+                        localStorage.setItem('cliente', JSON.stringify(data));
+                        setView('ruleta');
+                        fetchPuntos(data.id);
+                      }}
+                    />
                 )}
 
                 {view === "ruleta" && (
@@ -387,86 +318,7 @@ export default function App() {
                         </div>
 
                         <div className="bg-black/30 rounded-2xl p-8 border border-neutral-800">
-                            <div className="flex flex-col md:flex-row gap-6 items-center justify-center mt-8">
-                                {/* Ruleta y flecha */}
-                                <div className="relative w-80 h-80 flex-shrink-0">
-                                    {/* Flecha grande visible arriba */}
-                                    <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center">
-                                        <div
-                                            style={{
-                                                width: 0,
-                                                height: 0,
-                                                borderLeft: "22px solid transparent",
-                                                borderRight: "22px solid transparent",
-                                                borderTop: "38px solid #fff",
-                                            }}
-                                        />
-                                    </div>
-                                    {/* Ruleta */}
-                                    <div
-                                        className="w-80 h-80 rounded-full border-8 border-neutral-700 shadow-2xl relative overflow-hidden"
-                                        style={{
-                                            background: wheelGradient,
-                                            transform: `rotate(${rotation}deg)`,
-                                            transition: isSpinning ? "transform 3s cubic-bezier(0.25,0.46,0.45,0.94)" : "none",
-                                        }}
-                                    >
-                                        {/* Centro (clickeable para girar) */}
-                                        <div
-                                            role="button"
-                                            tabIndex={0}
-                                            onClick={!isSpinning ? spin : undefined}
-                                            onKeyDown={(e) => {
-                                                if (!isSpinning && (e.key === 'Enter' || e.key === ' ')) {
-                                                    e.preventDefault();
-                                                    spin();
-                                                }
-                                            }}
-                                            className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-neutral-950 rounded-full border-4 border-neutral-600 flex items-center justify-center z-10 select-none ${
-                                                isSpinning ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:border-gray-400'
-                                            }`}
-                                            aria-label="Girar ruleta"
-                                        >
-                                            <Coffee className="w-8 h-8 text-gray-300" />
-                                        </div>
-                                    </div>
-                                </div>
-                                {/* Leyenda de promos */}
-                                <div className="flex flex-col gap-3 w-full max-w-xs mt-8 md:mt-0">
-                                    <h4 className="text-lg font-semibold mb-2 text-white">Premios:</h4>
-                                    <div className="flex flex-col gap-2">
-                                        {promos.map((p) => (
-                                            <div key={p.id} className="flex items-center gap-3">
-                                                <div
-                                                    className="w-4 h-4 rounded-sm border border-neutral-700"
-                                                    style={{ background: p.color }}
-                                                />
-                                                <span className="text-white">{p.nombre}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="text-center mt-8">
-                                <button
-                                    onClick={spin}
-                                    disabled={isSpinning}
-                                    className={`px-8 py-4 rounded-full font-bold text-lg transition ${isSpinning ? "bg-neutral-700 cursor-not-allowed" : "bg-neutral-800 hover:bg-neutral-700"
-                                        }`}
-                                >
-                                    {isSpinning ? (
-                                        <>
-                                            <RotateCcw className="inline w-6 h-6 mr-2 animate-spin" />
-                                            Girando...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Gift className="inline w-6 h-6 mr-2" />
-                                            ¡Girar Ruleta!
-                                        </>
-                                    )}
-                                </button>
-                            </div>
+                            <RouletteWheel promos={promos} isSpinning={isSpinning} rotation={rotation} onSpin={spin} />
                         </div>
 
                         {ruletaResult && (
@@ -680,7 +532,7 @@ export default function App() {
                                                 {promos.map((p) => (
                                                     <div key={p.id} className="bg-neutral-900/60 border border-neutral-700 rounded p-3">
                                                         {editing === p.id ? (
-                                                            <EditRow
+                                                            <PromoEditRow
                                                                 promo={p}
                                                                 onCancel={() => setEditing(null)}
                                                                 onSave={async (data) => {

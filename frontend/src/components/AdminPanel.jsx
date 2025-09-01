@@ -3,7 +3,7 @@ import PromoEditRow from './PromoEditRow';
 import { apiGet, apiPost, apiPut, apiDelete } from '../lib/api';
 
 export default function AdminPanel({ adminToken, setAdminToken, notify }) {
-  const [hasEntered, setHasEntered] = useState(false);
+  const [valid, setValid] = useState(false);
   const [promos, setPromos] = useState([]);
   const [newPromo, setNewPromo] = useState({ nombre: '', descripcion: '', probabilidad: 10, activa: true, color: '#4B5563', icono: '🎁' });
   const [editing, setEditing] = useState(null);
@@ -13,6 +13,27 @@ export default function AdminPanel({ adminToken, setAdminToken, notify }) {
   const [addPoints, setAddPoints] = useState({ cedula: '', puntos: 0, descripcion: '' });
 
   const headers = adminToken ? { 'X-Admin-Token': adminToken } : {};
+
+  // Validate token once and persist
+  const validateToken = async (token) => {
+    try {
+      const res = await apiGet('/admin/ping', { headers: { 'X-Admin-Token': token } });
+      if (res.ok) {
+        setAdminToken(token);
+        localStorage.setItem('adminToken', token);
+        setValid(true);
+        return true;
+      }
+    } catch {}
+    return false;
+  };
+
+  useEffect(() => {
+    const saved = localStorage.getItem('adminToken');
+    if (saved && !valid) {
+      validateToken(saved);
+    }
+  }, [valid]);
 
   const fetchPromos = async () => {
     const res = await apiGet('/promociones?activas_solo=true');
@@ -33,15 +54,15 @@ export default function AdminPanel({ adminToken, setAdminToken, notify }) {
     setLoadingRegistros(false);
   };
 
-  useEffect(() => { if (hasEntered) fetchRegistros(); }, [hasEntered, page]);
+  useEffect(() => { if (valid) fetchRegistros(); }, [valid, page]);
   useEffect(() => { fetchPromos(); }, []);
 
   return (
     <div className="space-y-8">
-      {!hasEntered ? (
+      {!valid ? (
         <div className="bg-black/30 rounded-2xl p-6 border border-neutral-800">
           <h2 className="text-xl font-bold text-white mb-3">Panel de Administración</h2>
-          <form onSubmit={(e) => { e.preventDefault(); setHasEntered(true); }} className="flex gap-3 items-center">
+          <form onSubmit={async (e) => { e.preventDefault(); const ok = await validateToken(adminToken); if (!ok) notify('Token inválido', 'error'); }} className="flex gap-3 items-center">
             <input type="password" placeholder="X-Admin-Token" value={adminToken} onChange={(e)=>setAdminToken(e.target.value)} className="px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-gray-400 text-white w-full" />
             <button type="submit" className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg">Entrar</button>
           </form>
@@ -190,4 +211,3 @@ export default function AdminPanel({ adminToken, setAdminToken, notify }) {
     </div>
   );
 }
-

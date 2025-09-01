@@ -28,6 +28,11 @@ def root():
     return {"status": "ok", "service": "Caturro Café API"}
 
 
+@router.get("/admin/ping", dependencies=[Depends(require_admin)])
+def admin_ping():
+    return {"ok": True}
+
+
 # Clientes
 @router.post("/clientes", response_model=ClienteOut)
 def crear_cliente(payload: ClienteCreate, db: Session = Depends(get_db)):

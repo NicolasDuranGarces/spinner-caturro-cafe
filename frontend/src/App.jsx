@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Coffee, Gift, RotateCcw, Settings, X, LogOut } from "lucide-react";
+import { Coffee, Gift, RotateCcw, Settings, X, LogOut, Edit3, Trash2, Save } from "lucide-react";
 import Navbar from './components/Navbar';
 import Toast from './components/Toast';
 import RouletteWheel from './components/RouletteWheel';

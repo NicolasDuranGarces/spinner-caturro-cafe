@@ -34,6 +34,39 @@ export default function App() {
     const [adminPass, setAdminPass] = useState("");
     const [hasEnteredPass, setHasEnteredPass] = useState(false);
 
+    // Toast / alertas en-app
+    const [toast, setToast] = useState(null); // { message, type }
+    const notify = (message, type = 'info', timeout = 3500) => {
+        setToast({ message, type });
+        if (timeout) {
+            window.clearTimeout(notify._t);
+            notify._t = window.setTimeout(() => setToast(null), timeout);
+        }
+    };
+
+    // Util para leer mensajes de error sin mostrar JSON crudo
+    const readErrorMessage = async (res, fallback = 'Ocurrió un error') => {
+        try {
+            const data = await res.clone().json();
+            if (typeof data?.detail === 'string') return data.detail;
+            if (Array.isArray(data?.detail)) {
+                return data.detail.map((d) => d?.msg || d).join(', ');
+            }
+            if (typeof data?.message === 'string') return data.message;
+        } catch (_) {
+            try {
+                const t = await res.text();
+                const trimmed = (t || '').trim();
+                if (!trimmed) return fallback;
+                if (trimmed.startsWith('{') || trimmed.startsWith('[')) return fallback;
+                return trimmed;
+            } catch (_) {
+                return fallback;
+            }
+        }
+        return fallback;
+    };
+
     // Estado para registros (últimas tiradas)
     const [registros, setRegistros] = useState([]);
     const [loadingRegistros, setLoadingRegistros] = useState(false);
@@ -153,8 +186,10 @@ export default function App() {
             body: JSON.stringify(body),
         });
         if (!res.ok) {
-            const t = await res.text();
-            alert("Error registrando cliente: " + t);
+            const msg = res.status === 409
+                ? 'Cédula ya registrada'
+                : await readErrorMessage(res, 'No se pudo registrar');
+            notify(`Error registrando cliente: ${msg}`, 'error');
             return;
         }
         const data = await res.json();
@@ -173,7 +208,7 @@ export default function App() {
             body: JSON.stringify(body),
         });
         if (!res.ok) {
-            alert("Credenciales inválidas");
+            notify("Credenciales inválidas", 'error');
             return;
         }
         const data = await res.json();
@@ -199,7 +234,7 @@ export default function App() {
             const twoDays = 2 * 24 * 60 * 60 * 1000; // 2 días en ms
             const now = Date.now();
             if (now - parseInt(lastSpin, 10) < twoDays) {
-                alert("Solo puedes girar una vez cada 2 días en este dispositivo.");
+                notify("Solo puedes girar una vez cada 2 días en este dispositivo.", 'error');
                 return;
             }
         }
@@ -251,7 +286,7 @@ export default function App() {
             }, 3000);
         } catch (e) {
             setIsSpinning(false);
-            alert("No se pudo girar la ruleta");
+            notify("No se pudo girar la ruleta", 'error');
         }
     };
 
@@ -289,6 +324,17 @@ export default function App() {
             </header>
 
             <main className="max-w-4xl mx-auto p-6">
+                {/* Alert inline (no flotante) */}
+                {toast && (
+                    <div className="mb-4">
+                        <div className={`px-4 py-3 rounded-lg border text-sm flex items-start justify-between gap-3 w-full ${
+                            toast.type === 'error' ? 'bg-red-950/60 border-red-700 text-red-100' : toast.type === 'success' ? 'bg-green-950/60 border-green-700 text-green-100' : 'bg-neutral-900/60 border-neutral-700 text-gray-100'
+                        }`}>
+                            <span className="whitespace-pre-wrap break-words">{toast.message}</span>
+                            <button onClick={() => setToast(null)} className="ml-2 p-1 rounded hover:bg-white/10" aria-label="Cerrar alerta"><X className="w-4 h-4" /></button>
+                        </div>
+                    </div>
+                )}
                 {view === "register" && (
                     <div className="bg-black/30 rounded-2xl p-8 border border-neutral-800">
                         <div className="text-center mb-8">
@@ -483,7 +529,7 @@ export default function App() {
                                             setHasEnteredPass(true);
                                             setAdminPass("");
                                         } else {
-                                            alert("Contraseña incorrecta");
+                                            notify("Contraseña incorrecta", 'error');
                                             setAdminPass("");
                                         }
                                     }}
@@ -550,12 +596,12 @@ export default function App() {
                                                     headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
                                                     body: JSON.stringify({ cedula: addPoints.cedula, puntos: Number(addPoints.puntos), descripcion: addPoints.descripcion })
                                                 });
-                                                if (res.ok) {
-                                                    setAddPoints({ cedula: '', puntos: 0, descripcion: '' });
-                                                    if (cliente) fetchPuntos(cliente.id);
-                                                } else {
-                                                    alert('Error agregando puntos');
-                                                }
+                                        if (res.ok) {
+                                            setAddPoints({ cedula: '', puntos: 0, descripcion: '' });
+                                            if (cliente) fetchPuntos(cliente.id);
+                                        } else {
+                                            notify('Error agregando puntos', 'error');
+                                        }
                                             }}>
                                                 <input type="text" value={addPoints.cedula} onChange={(e)=>setAddPoints({...addPoints, cedula: e.target.value})} placeholder="Cédula" className="px-3 py-2 bg-neutral-900 border border-neutral-700 rounded text-white" />
                                                 <input type="number" min="1" value={addPoints.puntos} onChange={(e)=>setAddPoints({...addPoints, puntos: e.target.value})} placeholder="Puntos" className="px-3 py-2 bg-neutral-900 border border-neutral-700 rounded text-white" />
@@ -577,7 +623,7 @@ export default function App() {
                                                     setAddPoints({ cedula: '', puntos: 0, descripcion: '' });
                                                     if (cliente) fetchPuntos(cliente.id);
                                                 } else {
-                                                    alert('Error redimiendo puntos');
+                                                    notify('Error redimiendo puntos', 'error');
                                                 }
                                             }}>
                                                 <input type="text" value={addPoints.cedula} onChange={(e)=>setAddPoints({...addPoints, cedula: e.target.value})} placeholder="Cédula" className="px-3 py-2 bg-neutral-900 border border-neutral-700 rounded text-white" />
@@ -617,7 +663,7 @@ export default function App() {
                                                         headers: { "Content-Type": "application/json", "X-Admin-Token": adminToken },
                                                         body: JSON.stringify(newPromo),
                                                     });
-                                                    if (!res.ok) { alert("Error creando promoción"); return; }
+                                                    if (!res.ok) { notify("Error creando promoción", 'error'); return; }
                                                     setNewPromo({ nombre: "", descripcion: "", probabilidad: 10, activa: true, color: "#4B5563", icono: "🎁" });
                                                     fetchPromos();
                                                 }}
@@ -643,7 +689,7 @@ export default function App() {
                                                                         headers: { "Content-Type": "application/json", "X-Admin-Token": adminToken },
                                                                         body: JSON.stringify(data),
                                                                     });
-                                                                    if (!res.ok) { alert("Error actualizando"); return; }
+                                                                    if (!res.ok) { notify("Error actualizando", 'error'); return; }
                                                                     setEditing(null);
                                                                     fetchPromos();
                                                                 }}
@@ -674,7 +720,7 @@ export default function App() {
                                                                                 method: "DELETE",
                                                                                 headers: { "X-Admin-Token": adminToken }
                                                                             });
-                                                                            if (!res.ok) { alert("Error eliminando"); return; }
+                                                                    if (!res.ok) { notify("Error eliminando", 'error'); return; }
                                                                             fetchPromos();
                                                                         }}
                                                                         className="p-2 bg-red-800 hover:bg-red-700 rounded"

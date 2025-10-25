@@ -3,13 +3,11 @@ version: "3.9"
 services:
   mysql:
     image: mysql:8.0
-    container_name: caturro_mysql
+    container_name: spinner_caturro_cafe_mysql
     env_file:
       - ./.env
     environment:
-      TZ: America/Bogota
-    ports:
-      - "3306"
+      TZ: ${TZ}
     volumes:
       - mysql_data:/var/lib/mysql
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -23,29 +21,15 @@ services:
       retries: 5
       start_period: 20s
 
-  adminer:
-    image: adminer:latest
-    container_name: caturro_adminer
-    ports:
-      - "8080"
-    networks:
-      - caturro_network
-    depends_on:
-      mysql:
-        condition: service_healthy
-    restart: unless-stopped
-
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: caturro_backend
+    container_name: spinner_caturro_cafe_backend
     env_file:
       - ./.env
     environment:
-      - TZ=America/Bogota
-    ports:
-      - "8005:8000"
+      - TZ=${TZ}
     volumes:
       - ./backend:/app
     networks:
@@ -60,11 +44,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: caturro_frontend
+    container_name: spinner_caturro_cafe_frontend
     env_file:
       - ./.env
-    ports:
-      - "3005:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -72,6 +54,20 @@ services:
       - caturro_network
     depends_on:
       - backend
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: spinner_caturro_cafe_nginx
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - caturro_network
     restart: unless-stopped
 
 networks:

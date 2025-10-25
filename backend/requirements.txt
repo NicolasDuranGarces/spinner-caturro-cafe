@@ -7,3 +7,4 @@ python-dotenv
 cryptography
 pydantic-settings
 passlib[bcrypt]
+bcrypt==4.0.1

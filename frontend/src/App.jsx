@@ -6,6 +6,7 @@ import RouletteWheel from './components/RouletteWheel';
 import PointsPanel from './components/PointsPanel';
 import HistoryList from './components/HistoryList';
 import AdminPanel from './components/AdminPanel';
+import PromoEditRow from './components/PromoEditRow';
 import AuthForm from './components/AuthForm';
 import { apiGet, apiPost } from './lib/api';
 

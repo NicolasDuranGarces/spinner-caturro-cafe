@@ -8,15 +8,25 @@ import HistoryList from './components/HistoryList';
 import AdminPanel from './components/AdminPanel';
 import PromoEditRow from './components/PromoEditRow';
 import AuthForm from './components/AuthForm';
+import PolicyPage from './components/PolicyPage';
 import { apiGet, apiPost } from './lib/api';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export default function App() {
+    if (typeof window !== "undefined" && window.location.pathname.startsWith("/politica-datos")) {
+        return <PolicyPage />;
+    }
     const [view, setView] = useState("register"); // register | ruleta | admin
     const [cliente, setCliente] = useState(null);
     const [authMode, setAuthMode] = useState("login"); // login | register
-    const [authForm, setAuthForm] = useState({ cedula: "", password: "", nombre_completo: "", semestre: "" });
+    const [authForm, setAuthForm] = useState({
+        cedula: "",
+        password: "",
+        nombre_completo: "",
+        semestre: "",
+        aceptaTratamiento: false,
+    });
     const [puntos, setPuntos] = useState(0);
     const [historial, setHistorial] = useState([]);
     const [redeem, setRedeem] = useState({ puntos: 0, password: "", descripcion: "" });

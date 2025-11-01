@@ -3,9 +3,16 @@ import React from 'react';
 export default function AuthForm({ mode, setMode, values, setValues, onLogin, onRegister, loading = false }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (mode === 'register') await onRegister(values);
-    else await onLogin({ cedula: values.cedula, password: values.password });
+    if (mode === 'register') {
+      if (!values.aceptaTratamiento) return;
+      const { aceptaTratamiento, ...payload } = values;
+      await onRegister(payload);
+    } else {
+      await onLogin({ cedula: values.cedula, password: values.password });
+    }
   };
+
+  const registerDisabled = mode === 'register' && !values.aceptaTratamiento;
 
   return (
     <div className="bg-black/30 rounded-2xl p-8 border border-neutral-800">
@@ -41,13 +48,38 @@ export default function AuthForm({ mode, setMode, values, setValues, onLogin, on
                 ))}
               </select>
             </div>
+            <div className="bg-neutral-950/70 border border-neutral-800 rounded-lg p-4 text-sm text-gray-300 space-y-3">
+              <p>
+                Al registrarte autorizas de forma previa, expresa e informada el tratamiento de tus datos personales
+                conforme a la Política de Tratamiento de Datos de Caturro Café.
+              </p>
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={Boolean(values.aceptaTratamiento)}
+                  onChange={(e)=>setValues({ ...values, aceptaTratamiento: e.target.checked })}
+                  required
+                />
+                <span>
+                  He leído y acepto la Política de Tratamiento de Datos Personales{' '}
+                  <a
+                    href="/politica-datos"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-400 hover:text-blue-300 underline"
+                  >
+                    (ver documento)
+                  </a>.
+                </span>
+              </label>
+            </div>
           </>
         )}
-        <button type="submit" disabled={loading} className="w-full bg-neutral-800 hover:bg-neutral-700 disabled:opacity-60 text-white py-3 px-6 rounded-lg font-bold transition-all shadow">
+        <button type="submit" disabled={loading || registerDisabled} className="w-full bg-neutral-800 hover:bg-neutral-700 disabled:opacity-60 text-white py-3 px-6 rounded-lg font-bold transition-all shadow">
           {mode === 'register' ? 'Crear cuenta' : 'Iniciar sesión'}
         </button>
       </form>
     </div>
   );
 }
-

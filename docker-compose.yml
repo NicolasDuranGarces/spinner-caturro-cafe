@@ -56,6 +56,18 @@ services:
       - backend
     restart: unless-stopped
 
+  adminer:
+    image: adminer:4.8.1
+    container_name: spinner_caturro_cafe_adminer
+    environment:
+      - ADMINER_DEFAULT_SERVER=mysql
+    networks:
+      - caturro_network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
   nginx:
     image: nginx:1.27-alpine
     container_name: spinner_caturro_cafe_nginx

@@ -16,6 +16,8 @@ class Settings(BaseSettings):
 
     # Security / CORS
     admin_token: str
+    admin_username: str
+    admin_password: str
     # Permite string separada por comas o lista
     cors_origins: Union[List[str], str] = "http://localhost:3000"
 

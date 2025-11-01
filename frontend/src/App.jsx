@@ -1,15 +1,19 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Coffee, Gift, RotateCcw, Settings, X, LogOut, Edit3, Trash2, Save } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Settings, X, LogOut, Edit3, Trash2, Save } from "lucide-react";
 import Navbar from './components/Navbar';
-import Toast from './components/Toast';
 import RouletteWheel from './components/RouletteWheel';
-import PointsPanel from './components/PointsPanel';
-import HistoryList from './components/HistoryList';
-import AdminPanel from './components/AdminPanel';
 import PromoEditRow from './components/PromoEditRow';
 import AuthForm from './components/AuthForm';
 import PolicyPage from './components/PolicyPage';
 import { apiGet, apiPost } from './lib/api';
+
+const INITIAL_AUTH_FORM = {
+    cedula: "",
+    password: "",
+    nombre_completo: "",
+    semestre: "",
+    aceptaTratamiento: false,
+};
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -20,13 +24,7 @@ export default function App() {
     const [view, setView] = useState("register"); // register | ruleta | admin
     const [cliente, setCliente] = useState(null);
     const [authMode, setAuthMode] = useState("login"); // login | register
-    const [authForm, setAuthForm] = useState({
-        cedula: "",
-        password: "",
-        nombre_completo: "",
-        semestre: "",
-        aceptaTratamiento: false,
-    });
+    const [authForm, setAuthForm] = useState({ ...INITIAL_AUTH_FORM });
     const [puntos, setPuntos] = useState(0);
     const [historial, setHistorial] = useState([]);
     const [redeem, setRedeem] = useState({ puntos: 0, password: "", descripcion: "" });
@@ -40,6 +38,8 @@ export default function App() {
     const [ruletaTab, setRuletaTab] = useState('puntos'); // puntos | historial
 
     const [adminToken, setAdminToken] = useState("");
+    const [adminUserName, setAdminUserName] = useState("");
+    const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
     const [editing, setEditing] = useState(null);
     const [newPromo, setNewPromo] = useState({
         nombre: "",
@@ -49,9 +49,6 @@ export default function App() {
         color: "#4B5563",
         icono: "🎁",
     });
-    // Admin access password state
-    const [adminPass, setAdminPass] = useState("");
-    const [hasEnteredPass, setHasEnteredPass] = useState(false);
 
     // Toast / alertas en-app
     const [toast, setToast] = useState(null); // { message, type }
@@ -94,10 +91,14 @@ export default function App() {
     const [page, setPage] = useState(0);
 
     // Función para obtener registros
-    const fetchRegistros = async () => {
+    const fetchRegistros = async (token = adminToken, pageParam = page) => {
+        if (!token) {
+            setRegistros([]);
+            return;
+        }
         setLoadingRegistros(true);
         try {
-            const res = await apiGet(`/registros?skip=${page * 10}&limit=10`, { headers: { 'X-Admin-Token': adminToken } });
+            const res = await apiGet(`/registros?skip=${pageParam * 10}&limit=10`, { headers: { 'X-Admin-Token': token } });
             if (!res.ok) throw new Error("Error al cargar registros");
             const data = await res.json();
             setRegistros(data);
@@ -105,6 +106,67 @@ export default function App() {
             setRegistros([]);
         }
         setLoadingRegistros(false);
+    };
+
+    const validateAdminToken = async (token) => {
+        try {
+            const res = await apiGet('/admin/ping', { headers: { 'X-Admin-Token': token } });
+            if (!res.ok) throw new Error('invalid');
+            setAdminToken(token);
+            setIsAdminAuthenticated(true);
+            return true;
+        } catch (_) {
+            setIsAdminAuthenticated(false);
+            setAdminToken("");
+            setAdminUserName("");
+            return false;
+        }
+    };
+
+    const grantAdminAccess = (token, username) => {
+        setCliente(null);
+        localStorage.removeItem('cliente');
+        setPuntos(0);
+        setHistorial([]);
+        setRuletaResult(null);
+        setAddPoints({ cedula: "", puntos: 0, descripcion: "" });
+        setNewPromo({
+            nombre: "",
+            descripcion: "",
+            probabilidad: 10,
+            activa: true,
+            color: "#4B5563",
+            icono: "🎁",
+        });
+        setEditing(null);
+        setPage(0);
+        setRegistros([]);
+        setRuletaTab('puntos');
+        setAuthForm({ ...INITIAL_AUTH_FORM });
+        setAdminToken(token);
+        setIsAdminAuthenticated(true);
+        setAdminUserName(username);
+        localStorage.setItem('adminToken', token);
+        localStorage.setItem('adminUserName', username);
+        setView('admin');
+        notify('Acceso administrador concedido', 'success');
+        fetchPromos();
+        fetchRegistros(token, 0);
+    };
+
+    const tryAdminLogin = async (username, password) => {
+        try {
+            const res = await apiPost('/admin/login', { username, password });
+            if (!res.ok) {
+                const message = await readErrorMessage(res, 'Credenciales inválidas');
+                return { success: false, message };
+            }
+            const data = await res.json();
+            grantAdminAccess(data.token, username);
+            return { success: true };
+        } catch (_) {
+            return { success: false, message: 'No se pudo iniciar sesión como administrador' };
+        }
     };
 
     // Admin: agregar puntos por cédula
@@ -123,6 +185,12 @@ export default function App() {
         if (view !== "admin") fetchPromos();
     }, [view]);
 
+    useEffect(() => {
+        if (view === "admin" && isAdminAuthenticated && adminToken) {
+            fetchPromos();
+        }
+    }, [view, isAdminAuthenticated, adminToken]);
+
     // Restaurar sesión del cliente
     useEffect(() => {
         const raw = localStorage.getItem("cliente");
@@ -132,6 +200,30 @@ export default function App() {
                 setCliente(c);
                 setView("ruleta");
             } catch {}
+        }
+    }, []);
+
+    useEffect(() => {
+        const savedToken = localStorage.getItem("adminToken");
+        if (savedToken) {
+            validateAdminToken(savedToken).then((ok) => {
+                if (ok) {
+                    const savedName = localStorage.getItem("adminUserName");
+                    if (savedName) {
+                        setAdminUserName(savedName);
+                    }
+                    setCliente(null);
+                    localStorage.removeItem('cliente');
+                    setView('admin');
+                    setPage(0);
+                    setRegistros([]);
+                    fetchPromos();
+                    fetchRegistros(savedToken, 0);
+                } else {
+                    localStorage.removeItem("adminToken");
+                    localStorage.removeItem("adminUserName");
+                }
+            });
         }
     }, []);
 
@@ -160,6 +252,37 @@ export default function App() {
         setLoadingMisRegistros(false);
     };
 
+    const handleAdminLogout = () => {
+        setIsAdminAuthenticated(false);
+        setAdminToken("");
+        setAdminUserName("");
+        setPage(0);
+        setRegistros([]);
+        localStorage.removeItem('adminToken');
+        localStorage.removeItem('adminUserName');
+        setCliente(null);
+        localStorage.removeItem('cliente');
+        setPuntos(0);
+        setHistorial([]);
+        setMisRegistros([]);
+        setRuletaResult(null);
+        setAddPoints({ cedula: "", puntos: 0, descripcion: "" });
+        setNewPromo({
+            nombre: "",
+            descripcion: "",
+            probabilidad: 10,
+            activa: true,
+            color: "#4B5563",
+            icono: "🎁",
+        });
+        setEditing(null);
+        setPage(0);
+        setRegistros([]);
+        setRuletaTab('puntos');
+        setAuthForm({ ...INITIAL_AUTH_FORM });
+        setView("register");
+    };
+
     // Cargar registros cuando adminToken y page cambian
     useEffect(() => {
         if (view === "admin" && adminToken) {
@@ -186,6 +309,14 @@ export default function App() {
         setPuntos(0);
         setHistorial([]);
         localStorage.removeItem("cliente");
+        setIsAdminAuthenticated(false);
+        setAdminToken("");
+        setAdminUserName("");
+        localStorage.removeItem('adminToken');
+        localStorage.removeItem('adminUserName');
+        setAuthForm({ ...INITIAL_AUTH_FORM });
+        setMisRegistros([]);
+        setRuletaTab('puntos');
         setView("register");
     };
 
@@ -268,12 +399,24 @@ export default function App() {
                     <Navbar
                       view={view}
                       puntos={puntos}
-                      onToggleAdmin={() => setView(view === 'admin' ? 'ruleta' : 'admin')}
-                      onLogout={logout}
+                      onToggleAdmin={() => {
+                        if (!isAdminAuthenticated) {
+                            notify('Debes iniciar sesión como administrador', 'error');
+                            return;
+                        }
+                        setView((prev) => {
+                            if (prev === 'admin' && cliente) {
+                                return 'ruleta';
+                            }
+                            return 'admin';
+                        });
+                      }}
+                      onLogout={isAdminAuthenticated ? handleAdminLogout : logout}
                       ruletaTab={ruletaTab}
                       setRuletaTab={setRuletaTab}
                       cliente={cliente}
                       onOpenHistorial={() => fetchMisRegistros(cliente?.id)}
+                      isAdminAuthenticated={isAdminAuthenticated}
                     />
                 </div>
             </header>
@@ -297,13 +440,36 @@ export default function App() {
                       values={authForm}
                       setValues={setAuthForm}
                       onLogin={async ({ cedula, password }) => {
-                        const res = await apiPost('/auth/login', { cedula, password });
-                        if (!res.ok) { notify('Credenciales inválidas', 'error'); return; }
-                        const data = await res.json();
-                        setCliente(data);
-                        localStorage.setItem('cliente', JSON.stringify(data));
-                        setView('ruleta');
-                        fetchPuntos(data.id);
+                        try {
+                            const res = await apiPost('/auth/login', { cedula, password });
+                            if (res.ok) {
+                                const data = await res.json();
+                                setCliente(data);
+                                localStorage.setItem('cliente', JSON.stringify(data));
+                                setIsAdminAuthenticated(false);
+                                setAdminToken("");
+                                setAdminUserName("");
+                                localStorage.removeItem('adminToken');
+                                localStorage.removeItem('adminUserName');
+                                setAuthForm({ ...INITIAL_AUTH_FORM });
+                                setPage(0);
+                                setRegistros([]);
+                                setMisRegistros([]);
+                                setView('ruleta');
+                                fetchPuntos(data.id);
+                                return;
+                            }
+                            const adminAttempt = await tryAdminLogin(cedula, password);
+                            if (!adminAttempt.success) {
+                                const msg = adminAttempt.message || (await readErrorMessage(res, 'Credenciales inválidas'));
+                                notify(msg, 'error');
+                            }
+                        } catch (_) {
+                            const adminAttempt = await tryAdminLogin(cedula, password);
+                            if (!adminAttempt.success) {
+                                notify(adminAttempt.message || 'No se pudo iniciar sesión', 'error');
+                            }
+                        }
                       }}
                       onRegister={async (payload) => {
                         const res = await apiPost('/auth/register', payload);
@@ -315,6 +481,15 @@ export default function App() {
                         const data = await res.json();
                         setCliente(data);
                         localStorage.setItem('cliente', JSON.stringify(data));
+                        setIsAdminAuthenticated(false);
+                        setAdminToken("");
+                        setAdminUserName("");
+                        localStorage.removeItem('adminToken');
+                        localStorage.removeItem('adminUserName');
+                        setAuthForm({ ...INITIAL_AUTH_FORM });
+                        setPage(0);
+                        setRegistros([]);
+                        setMisRegistros([]);
                         setView('ruleta');
                         fetchPuntos(data.id);
                       }}
@@ -382,75 +557,58 @@ export default function App() {
                 {view === "admin" && (
                     <div className="space-y-8">
                         {/* Acceso admin */}
-                        {!hasEnteredPass ? (
-                            <div className="bg-black/30 rounded-2xl p-6 border border-neutral-800">
+                        {!isAdminAuthenticated || !adminToken ? (
+                            <div className="bg-black/30 rounded-2xl p-6 border border-neutral-800 max-w-xl mx-auto text-center">
                                 <h2 className="text-xl font-bold text-white mb-3">Panel de Administración</h2>
-                                <form
-                                    onSubmit={e => {
-                                        e.preventDefault();
-                                        if (adminPass === "2320") {
-                                            setHasEnteredPass(true);
-                                            setAdminPass("");
-                                        } else {
-                                            notify("Contraseña incorrecta", 'error');
-                                            setAdminPass("");
-                                        }
-                                    }}
-                                    className="flex gap-3 items-center"
+                                <p className="text-gray-400 text-sm mb-4">
+                                    Inicia sesión con tu cuenta de administrador en la vista principal usando las credenciales configuradas en <code>ADMIN_USERNAME</code> y <code>ADMIN_PASSWORD</code>.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setView('register')}
+                                    className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded"
                                 >
-                                    <input
-                                        type="password"
-                                        placeholder="Contraseña de acceso"
-                                        value={adminPass}
-                                        onChange={e => setAdminPass(e.target.value)}
-                                        className="px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-gray-400 text-white w-full"
-                                    />
-                                    <button
-                                        type="submit"
-                                        className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg"
-                                    >
-                                        Entrar
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setView("ruleta")}
-                                        className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg"
-                                    >
-                                        ← Volver
-                                    </button>
-                                </form>
+                                    Ir a iniciar sesión
+                                </button>
                             </div>
                         ) : (
                             <>
-                                <div className="bg-black/30 rounded-2xl p-6 border border-neutral-800">
-                                    <h2 className="text-xl font-bold text-white mb-3">Panel de Administración</h2>
-                                    <div className="flex gap-3 items-center">
-                                        <input
-                                            type="password"
-                                            placeholder="X-Admin-Token"
-                                            value={adminToken}
-                                            onChange={(e) => setAdminToken(e.target.value)}
-                                            className="px-4 py-2 bg-neutral-900 border border-neutral-700 rounded-lg focus:border-gray-400 text-white w-full"
-                                        />
+                                <div className="bg-black/30 rounded-2xl p-6 border border-neutral-800 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                                    <div>
+                                        <h2 className="text-xl font-bold text-white mb-1">Panel de Administración</h2>
+                                        <p className="text-gray-400 text-sm">
+                                            Sesión iniciada como{" "}
+                                            <span className="text-white font-semibold">{adminUserName || "Administrador"}</span>.
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-3">
                                         <button
-                                            onClick={() => fetchPromos()}
+                                            onClick={() => {
+                                                fetchPromos();
+                                                fetchRegistros();
+                                            }}
                                             className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg"
                                         >
-                                            Refrescar
+                                            Refrescar datos
                                         </button>
+                                        {cliente && (
+                                            <button
+                                                onClick={() => setView('ruleta')}
+                                                className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg"
+                                            >
+                                                Ir a ruleta
+                                            </button>
+                                        )}
                                         <button
-                                            onClick={() => setView("ruleta")}
-                                            className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg"
+                                            onClick={handleAdminLogout}
+                                            className="px-4 py-2 bg-red-800 hover:bg-red-700 rounded-lg"
                                         >
-                                            ← Volver
+                                            Cerrar sesión
                                         </button>
                                     </div>
-                                    <p className="text-gray-400 text-sm mt-2">Usa el token configurado en <code>ADMIN_TOKEN</code> (docker-compose).</p>
                                 </div>
-                                {adminToken && (
-                                    <>
-                                        {/* Agregar puntos por compra */}
-                                        <div className="bg-black/30 rounded-2xl p-6 border border-neutral-800">
+                                {/* Agregar puntos por compra */}
+                                <div className="bg-black/30 rounded-2xl p-6 border border-neutral-800">
                                             <h3 className="text-lg font-semibold mb-4">Agregar puntos por compra</h3>
                                             <form className="grid grid-cols-1 md:grid-cols-4 gap-3" onSubmit={async (e)=>{
                                                 e.preventDefault();
@@ -666,8 +824,6 @@ export default function App() {
                                                 </div>
                                             )}
                                         </div>
-                                    </>
-                                )}
                             </>
                         )}
                     </div>

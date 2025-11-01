@@ -3,13 +3,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 
+from ..core.config import settings
 from ..core.database import get_db
 from ..core.security import hash_password, verify_password
 from ..models import Cliente, Promocion, RegistroRuleta, MovimientoPuntos
 from ..schemas.cliente import ClienteCreate, ClienteOut
 from ..schemas.promocion import PromocionCreate, PromocionOut
 from ..schemas.registro import GiroRequest, RegistroRuletaOut, RuletaResult
-from ..schemas.auth import RegisterRequest, LoginRequest, ClienteAuthOut
+from ..schemas.auth import (
+    RegisterRequest,
+    LoginRequest,
+    ClienteAuthOut,
+    AdminLoginRequest,
+    AdminLoginResponse,
+)
 from ..schemas.puntos import (
     SumarPuntosRequest,
     RedimirPuntosRequest,
@@ -32,6 +39,25 @@ def root():
 @router.get("/admin/ping", dependencies=[Depends(require_admin)])
 def admin_ping():
     return {"ok": True}
+
+# Helpers
+def _admin_password_matches(password: str) -> bool:
+    stored = settings.admin_password or ""
+    if stored.startswith("$2"):
+        try:
+            return verify_password(password, stored)
+        except ValueError:
+            return False
+    return password == stored
+
+
+@router.post("/admin/login", response_model=AdminLoginResponse)
+def admin_login(payload: AdminLoginRequest):
+    if payload.username.strip().lower() != settings.admin_username.strip().lower():
+        raise HTTPException(401, "Credenciales inválidas")
+    if not _admin_password_matches(payload.password):
+        raise HTTPException(401, "Credenciales inválidas")
+    return {"token": settings.admin_token}
 
 
 # Clientes

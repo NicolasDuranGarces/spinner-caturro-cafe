@@ -9,14 +9,18 @@ export default function Navbar({
   setRuletaTab,
   cliente,
   onOpenHistorial,
+  isAdminAuthenticated,
 }) {
+  if (!cliente && !isAdminAuthenticated) {
+    return null;
+  }
+
   return (
     <div className="flex items-center gap-3">
       {cliente && (
         <>
           {view === "ruleta" && (
             <div className="hidden sm:flex gap-2">
-              {/* Botón único de Historial al lado de puntos */}
               <button
                 onClick={() => {
                   setRuletaTab("historial");
@@ -35,24 +39,27 @@ export default function Navbar({
           <span className="text-sm text-gray-300">
             Puntos: <strong className="text-white">{puntos}</strong>
           </span>
-          <button
-            onClick={onToggleAdmin}
-            className="p-2 rounded-lg hover:bg-neutral-800 transition"
-            title="Panel Admin"
-          >
-            <Settings className="w-6 h-6 text-gray-300" />
-          </button>
-          <button
-            onClick={onLogout}
-            className="p-2 rounded-lg hover:bg-neutral-800 transition"
-            title="Salir"
-            aria-label="Salir"
-          >
-            <LogOut className="w-6 h-6 text-gray-300" />
-          </button>
         </>
+      )}
+      {isAdminAuthenticated && (
+        <button
+          onClick={onToggleAdmin}
+          className="p-2 rounded-lg hover:bg-neutral-800 transition"
+          title="Panel Admin"
+        >
+          <Settings className="w-6 h-6 text-gray-300" />
+        </button>
+      )}
+      {(cliente || isAdminAuthenticated) && (
+        <button
+          onClick={onLogout}
+          className="p-2 rounded-lg hover:bg-neutral-800 transition"
+          title="Salir"
+          aria-label="Salir"
+        >
+          <LogOut className="w-6 h-6 text-gray-300" />
+        </button>
       )}
     </div>
   );
 }
-

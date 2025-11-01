@@ -22,3 +22,11 @@ class ClienteAuthOut(BaseModel):
     class Config:
         from_attributes = True
 
+
+class AdminLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AdminLoginResponse(BaseModel):
+    token: str

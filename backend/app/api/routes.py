@@ -17,10 +17,11 @@ from ..schemas.puntos import (
     MovimientoOut,
 )
 from .deps import require_admin
-import random
+from random import SystemRandom
 
 
 router = APIRouter()
+system_random = SystemRandom()
 
 
 @router.get("/")
@@ -132,12 +133,16 @@ def girar_ruleta(cliente_id: int, payload: GiroRequest, db: Session = Depends(ge
     if not promos:
         raise HTTPException(404, "No hay promociones activas")
 
-    total_prob = sum(float(p.probabilidad) for p in promos)
-    r = random.uniform(0, total_prob)
+    pesos = [float(p.probabilidad) for p in promos]
+    total_prob = sum(pesos)
+    if total_prob <= 0:
+        raise HTTPException(400, "La suma de probabilidades activas debe ser > 0")
+
+    r = system_random.random() * total_prob
     acc = 0.0
     ganadora = promos[-1]
-    for p in promos:
-        acc += float(p.probabilidad)
+    for p, peso in zip(promos, pesos):
+        acc += peso
         if r <= acc:
             ganadora = p
             break
